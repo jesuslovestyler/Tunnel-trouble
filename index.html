@@ -205,13 +205,14 @@
         <h2>How to play</h2>
         <ul>
           <li><b>Dig</b> with the arrow pad — you carve tunnels as you go, slower through solid dirt than open tunnel.</li>
+          <li><b>Hold to move:</b> the digger only moves while you hold a direction — let go and he stops. Or skip the buttons: press and drag right on the board itself to steer, and lift your finger to stop.</li>
           <li><b>PUMP</b> shoots your air hose the way you're facing. If it latches a critter, keep tapping PUMP — three puffs pops it! Stop tapping and it deflates and wriggles free.</li>
           <li><b>Burrow Bugs</b> drift through dirt and chase you in tunnels. <b>Ember Imps</b> stop and breathe flame down open tunnels — stay out of the line of fire.</li>
           <li><b>Boulders:</b> dig the dirt out from under one and it wobbles, then falls — crushing anything underneath, including you. +250 per critter squashed.</li>
           <li>Deeper critters are worth more points. Pop a few and a <b>bonus carrot</b> appears in the middle tunnel — grab it before it vanishes.</li>
           <li>Clear every critter to reach the next level. You have 3 lives — don't get touched!</li>
         </ul>
-        <p class="keys">On a keyboard: arrow keys or WASD to dig, Space to pump.</p>
+        <p class="keys">On a keyboard: hold arrow keys or WASD to dig, Space to pump. On a mouse: hold a pad button, or drag on the board.</p>
       </section>
     </main>
 
@@ -239,7 +240,8 @@
     var stateT = 0, timeNow = 0;
     var popsThisLevel = 0, carrotSpawned = false, carrot = null;
     var hose = { active: false, latched: null, puffs: 0, lastPuff: 0, deflateT: 0, missT: 0, reach: 0 };
-    var invincibleUntil = 0, heldDirs = [], tapDir = null, dirTravel = 0;
+    var invincibleUntil = 0, heldDirs = [], steerDir = null;
+    var boardPtr = { id: null, ax: 0, ay: 0 }; // active drag-on-the-board pointer
     var muted = false, lastDigSfx = -9;
 
     function center(c) { return c * T + T / 2; }
@@ -386,23 +388,22 @@
     function dirtSpd() { return Math.min(34 + (level - 1) * 2, 50); }
 
     /* ================= Player ================= */
-    // The direction the player currently wants: the most recently pressed
-    // direction that is still held, or the tap direction being finished out.
+    // The direction the player currently wants: the board-drag direction
+    // while a finger is steering on the board, else the most recently
+    // pressed direction that is still held. Nothing held = no direction.
     function wantedDir() {
-      return heldDirs.length ? DIRS[heldDirs[heldDirs.length - 1]] : tapDir;
+      if (steerDir) return DIRS[steerDir];
+      return heldDirs.length ? DIRS[heldDirs[heldDirs.length - 1]] : null;
     }
     function centerDecision(p) {
       // Arrived at a cell center: turn into the wanted direction if it
-      // differs; with nothing held, stop once a tap has carried the digger
-      // at least one full cell in its current direction.
+      // differs; with nothing held, stop right here — so after a release
+      // the digger finishes at most the cell it was partway through and
+      // never enters a second new cell.
       var w = wantedDir();
       if (w && (w.x !== p.dir.x || w.y !== p.dir.y)) {
         p.dir = { x: w.x, y: w.y };
-        dirTravel = 0;
-        return;
-      }
-      if (!heldDirs.length && (!w || dirTravel >= T - 0.001)) {
-        tapDir = null;
+      } else if (!w) {
         p.dir = { x: 0, y: 0 };
       }
     }
@@ -424,8 +425,8 @@
       if (hose.active) return; // rooted while the hose is out
       var want = wantedDir();
       if (want) {
-        if (!p.dir.x && !p.dir.y) { p.dir = { x: want.x, y: want.y }; dirTravel = 0; }
-        else if (want.x === -p.dir.x && want.y === -p.dir.y) { p.dir = { x: want.x, y: want.y }; dirTravel = 0; } // reverse any time
+        if (!p.dir.x && !p.dir.y) { p.dir = { x: want.x, y: want.y }; }
+        else if (want.x === -p.dir.x && want.y === -p.dir.y) { p.dir = { x: want.x, y: want.y }; } // reverse any time
         // Perpendicular turns happen at the next cell center, in the move loop.
       }
       if (!p.dir.x && !p.dir.y) return;
@@ -449,7 +450,6 @@
         p.y += p.dir.y * step;
         p.x = Math.max(T / 2, Math.min(W - T / 2, p.x));
         p.y = Math.max(T / 2, Math.min(H - T / 2, p.y));
-        dirTravel += step;
         dist -= step;
         if (step >= toC - 0.001) centerDecision(p);
       }
@@ -1004,23 +1004,27 @@
     }
 
     /* ================= Input ================= */
-    // Held-direction tracking: heldDirs holds every direction currently
-    // held down (most recent last); tapDir remembers the last direction
-    // tapped so a quick tap still finishes out a full cell after release.
+    // Strict hold-to-move tracking: heldDirs holds every direction
+    // currently held down (most recent last). A direction exists only
+    // while its button, key, or board drag is actively held — there is
+    // no tap memory and no queued direction.
     function pressDir(name) {
       var i = heldDirs.indexOf(name);
       if (i >= 0) heldDirs.splice(i, 1);
       heldDirs.push(name);
-      tapDir = DIRS[name];
     }
     function releaseDir(name) {
       var i = heldDirs.indexOf(name);
-      if (i < 0) return;
-      var wasTop = i === heldDirs.length - 1;
-      heldDirs.splice(i, 1);
-      if (!heldDirs.length && wasTop) tapDir = DIRS[name];
+      if (i >= 0) heldDirs.splice(i, 1);
     }
-    function clearInput() { heldDirs.length = 0; tapDir = null; dirTravel = 0; }
+    function clearInput() {
+      heldDirs.length = 0;
+      steerDir = null;
+      boardPtr.id = null;
+      for (var k in btnPointers) delete btnPointers[k];
+    }
+    var btnPointers = {};    // pointerId -> D-pad direction that pointer holds
+    var activePointers = {}; // pointerId -> true, every pointer currently down
     var dpadBtns = document.querySelectorAll('[data-dir]');
     for (var bi = 0; bi < dpadBtns.length; bi++) {
       (function (btn) {
@@ -1028,16 +1032,59 @@
         btn.addEventListener('pointerdown', function (e) {
           e.preventDefault();
           acResume();
+          btnPointers[e.pointerId] = name;
           pressDir(name);
           btn.blur();
         });
-        var relEvents = ['pointerup', 'pointerleave', 'pointercancel'];
-        for (var ri = 0; ri < relEvents.length; ri++) {
-          btn.addEventListener(relEvents[ri], function () { releaseDir(name); });
+        // Sliding off the button (even while captured) ends its direction.
+        function slideOff(e) {
+          if (btnPointers[e.pointerId] === name) {
+            delete btnPointers[e.pointerId];
+            releaseDir(name);
+          }
         }
+        btn.addEventListener('pointerleave', slideOff);
+        btn.addEventListener('lostpointercapture', slideOff);
         btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
       })(dpadBtns[bi]);
     }
+    // Releases are heard at window level, so a direction can never stick:
+    // wherever the pointer actually lifts, its direction ends — and when
+    // the last pointer lifts, every held direction is cleared.
+    window.addEventListener('pointerdown', function (e) { activePointers[e.pointerId] = true; });
+    function pointerEnd(e) {
+      if (btnPointers[e.pointerId]) { releaseDir(btnPointers[e.pointerId]); delete btnPointers[e.pointerId]; }
+      if (boardPtr.id === e.pointerId) { boardPtr.id = null; steerDir = null; }
+      delete activePointers[e.pointerId];
+      var any = false;
+      for (var k in activePointers) { any = true; break; }
+      if (!any) clearInput();
+    }
+    window.addEventListener('pointerup', pointerEnd);
+    window.addEventListener('pointercancel', pointerEnd);
+
+    /* ---- Direct board steering: press and drag on the board itself ---- */
+    function boardPos(e) {
+      var r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+    }
+    canvas.addEventListener('pointerdown', function (e) {
+      if (boardPtr.id !== null) return;
+      e.preventDefault();
+      acResume();
+      var pos = boardPos(e);
+      boardPtr.id = e.pointerId; boardPtr.ax = pos.x; boardPtr.ay = pos.y;
+      steerDir = null;
+    });
+    window.addEventListener('pointermove', function (e) {
+      if (boardPtr.id !== e.pointerId) return;
+      var pos = boardPos(e);
+      var dx = pos.x - boardPtr.ax, dy = pos.y - boardPtr.ay;
+      var adx = Math.abs(dx), ady = Math.abs(dy);
+      if (Math.max(adx, ady) < T * 0.4) return; // dead zone: keep current steer
+      var d = adx > ady ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+      if (d !== steerDir) { steerDir = d; boardPtr.ax = pos.x; boardPtr.ay = pos.y; }
+    });
     $('pumpBtn').addEventListener('pointerdown', function (e) {
       e.preventDefault();
       this.blur();
@@ -1072,7 +1119,10 @@
       var d = KEYMAP[e.key];
       if (d) { e.preventDefault(); releaseDir(d); }
     });
-    window.addEventListener('blur', function () { clearInput(); });
+    window.addEventListener('blur', function () { activePointers = {}; clearInput(); });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { activePointers = {}; clearInput(); }
+    });
 
     /* ================= Boot & loop ================= */
     buildLevel(1);
