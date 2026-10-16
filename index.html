@@ -239,7 +239,7 @@
     var stateT = 0, timeNow = 0;
     var popsThisLevel = 0, carrotSpawned = false, carrot = null;
     var hose = { active: false, latched: null, puffs: 0, lastPuff: 0, deflateT: 0, missT: 0, reach: 0 };
-    var invincibleUntil = 0, inputDir = null;
+    var invincibleUntil = 0, heldDirs = [], tapDir = null, dirTravel = 0;
     var muted = false, lastDigSfx = -9;
 
     function center(c) { return c * T + T / 2; }
@@ -354,7 +354,7 @@
       }
       player = { x: center(SPAWN.col), y: center(SPAWN.row), dir: {x:0,y:0}, face: {x:1,y:0}, animT: 0 };
       invincibleUntil = timeNow + 0.6;
-      inputDir = null;
+      clearInput();
     }
     function resetHose() {
       if (hose.latched) { hose.latched.state = 'free'; hose.latched.inflate = 0; }
@@ -386,39 +386,78 @@
     function dirtSpd() { return Math.min(34 + (level - 1) * 2, 50); }
 
     /* ================= Player ================= */
+    // The direction the player currently wants: the most recently pressed
+    // direction that is still held, or the tap direction being finished out.
+    function wantedDir() {
+      return heldDirs.length ? DIRS[heldDirs[heldDirs.length - 1]] : tapDir;
+    }
+    function centerDecision(p) {
+      // Arrived at a cell center: turn into the wanted direction if it
+      // differs; with nothing held, stop once a tap has carried the digger
+      // at least one full cell in its current direction.
+      var w = wantedDir();
+      if (w && (w.x !== p.dir.x || w.y !== p.dir.y)) {
+        p.dir = { x: w.x, y: w.y };
+        dirTravel = 0;
+        return;
+      }
+      if (!heldDirs.length && (!w || dirTravel >= T - 0.001)) {
+        tapDir = null;
+        p.dir = { x: 0, y: 0 };
+      }
+    }
+    function distToCenterAhead(p) {
+      var pos = p.dir.x !== 0 ? p.x : p.y;
+      var lim = p.dir.x !== 0 ? W : H;
+      var sgn = p.dir.x !== 0 ? p.dir.x : p.dir.y;
+      var c = Math.floor(pos / T) * T + T / 2, next;
+      if (Math.abs(pos - c) <= 0.001) return 0; // sitting on a center
+      if (sgn > 0) next = c > pos ? c : c + T;
+      else next = c < pos ? c : c - T;
+      if (next < T / 2) next = T / 2;
+      if (next > lim - T / 2) next = lim - T / 2;
+      return Math.abs(next - pos);
+    }
     function updatePlayer(dt) {
       var p = player;
       p.animT += dt;
       if (hose.active) return; // rooted while the hose is out
-      if (inputDir) {
-        var w = inputDir;
-        if ((p.dir.x || p.dir.y) && w.x === -p.dir.x && w.y === -p.dir.y) {
-          p.dir = { x: w.x, y: w.y }; // reverse any time
-        } else if (w.x !== p.dir.x || w.y !== p.dir.y) {
-          if (!p.dir.x && !p.dir.y) p.dir = { x: w.x, y: w.y };
-          else if (w.y !== 0) {
-            var cx = center(Math.floor(p.x / T));
-            if (Math.abs(p.x - cx) <= 7) { p.x = cx; p.dir = { x: w.x, y: w.y }; }
-          } else {
-            var cy = center(Math.floor(p.y / T));
-            if (Math.abs(p.y - cy) <= 7) { p.y = cy; p.dir = { x: w.x, y: w.y }; }
-          }
-        }
+      var want = wantedDir();
+      if (want) {
+        if (!p.dir.x && !p.dir.y) { p.dir = { x: want.x, y: want.y }; dirTravel = 0; }
+        else if (want.x === -p.dir.x && want.y === -p.dir.y) { p.dir = { x: want.x, y: want.y }; dirTravel = 0; } // reverse any time
+        // Perpendicular turns happen at the next cell center, in the move loop.
       }
-      if (p.dir.x || p.dir.y) {
-        p.face = { x: p.dir.x, y: p.dir.y };
-        var ax = p.x + p.dir.x * T * 0.55, ay = p.y + p.dir.y * T * 0.55;
-        var ac = Math.floor(ax / T), ar = Math.floor(ay / T);
-        var solid = ar >= 1 && inB(ac, ar) && !dug[ar][ac];
-        var sp = solid ? 92 : 138;
-        p.x = Math.max(T / 2, Math.min(W - T / 2, p.x + p.dir.x * sp * dt));
-        p.y = Math.max(T / 2, Math.min(H - T / 2, p.y + p.dir.y * sp * dt));
-        var cc = Math.floor(p.x / T), cr = Math.floor(p.y / T);
-        if (cr >= 1 && inB(cc, cr) && !dug[cr][cc]) {
-          dug[cr][cc] = true;
-          dirtBurst(p.x, p.y);
-          if (timeNow - lastDigSfx > 0.09) { sfxDig(); lastDigSfx = timeNow; }
+      if (!p.dir.x && !p.dir.y) return;
+      p.face = { x: p.dir.x, y: p.dir.y };
+      var ax = p.x + p.dir.x * T * 0.55, ay = p.y + p.dir.y * T * 0.55;
+      var ac = Math.floor(ax / T), ar = Math.floor(ay / T);
+      var solid = ar >= 1 && inB(ac, ar) && !dug[ar][ac];
+      var sp = solid ? 92 : 138;
+      var dist = sp * dt, guard = 0;
+      while (dist > 0.0001 && (p.dir.x || p.dir.y) && guard++ < 8) {
+        var toC = distToCenterAhead(p);
+        if (toC <= 0.001) {
+          var bx = p.dir.x, by = p.dir.y;
+          centerDecision(p);
+          if (!p.dir.x && !p.dir.y) break;
+          if (p.dir.x === bx && p.dir.y === by) toC = T; // keep gliding straight
+          else continue; // turned on the spot: recompute
         }
+        var step = Math.min(dist, toC);
+        p.x += p.dir.x * step;
+        p.y += p.dir.y * step;
+        p.x = Math.max(T / 2, Math.min(W - T / 2, p.x));
+        p.y = Math.max(T / 2, Math.min(H - T / 2, p.y));
+        dirTravel += step;
+        dist -= step;
+        if (step >= toC - 0.001) centerDecision(p);
+      }
+      var cc = Math.floor(p.x / T), cr = Math.floor(p.y / T);
+      if (cr >= 1 && inB(cc, cr) && !dug[cr][cc]) {
+        dug[cr][cc] = true;
+        dirtBurst(p.x, p.y);
+        if (timeNow - lastDigSfx > 0.09) { sfxDig(); lastDigSfx = timeNow; }
       }
     }
 
@@ -661,7 +700,7 @@
     function respawn() {
       player.x = center(SPAWN.col); player.y = center(SPAWN.row);
       player.dir = { x: 0, y: 0 }; player.face = { x: 1, y: 0 };
-      inputDir = null;
+      clearInput();
       invincibleUntil = timeNow + 2.5;
       state = 'playing';
     }
@@ -965,15 +1004,37 @@
     }
 
     /* ================= Input ================= */
+    // Held-direction tracking: heldDirs holds every direction currently
+    // held down (most recent last); tapDir remembers the last direction
+    // tapped so a quick tap still finishes out a full cell after release.
+    function pressDir(name) {
+      var i = heldDirs.indexOf(name);
+      if (i >= 0) heldDirs.splice(i, 1);
+      heldDirs.push(name);
+      tapDir = DIRS[name];
+    }
+    function releaseDir(name) {
+      var i = heldDirs.indexOf(name);
+      if (i < 0) return;
+      var wasTop = i === heldDirs.length - 1;
+      heldDirs.splice(i, 1);
+      if (!heldDirs.length && wasTop) tapDir = DIRS[name];
+    }
+    function clearInput() { heldDirs.length = 0; tapDir = null; dirTravel = 0; }
     var dpadBtns = document.querySelectorAll('[data-dir]');
     for (var bi = 0; bi < dpadBtns.length; bi++) {
       (function (btn) {
+        var name = btn.getAttribute('data-dir');
         btn.addEventListener('pointerdown', function (e) {
           e.preventDefault();
           acResume();
-          inputDir = DIRS[btn.getAttribute('data-dir')];
+          pressDir(name);
           btn.blur();
         });
+        var relEvents = ['pointerup', 'pointerleave', 'pointercancel'];
+        for (var ri = 0; ri < relEvents.length; ri++) {
+          btn.addEventListener(relEvents[ri], function () { releaseDir(name); });
+        }
         btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
       })(dpadBtns[bi]);
     }
@@ -1004,11 +1065,14 @@
         return;
       }
       var d = KEYMAP[e.key];
-      if (d) { e.preventDefault(); acResume(); inputDir = DIRS[d]; }
+      if (d) { e.preventDefault(); acResume(); if (!e.repeat) pressDir(d); }
     });
     window.addEventListener('keyup', function (e) {
-      if (e.key === ' ' || e.code === 'Space') e.preventDefault();
+      if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); return; }
+      var d = KEYMAP[e.key];
+      if (d) { e.preventDefault(); releaseDir(d); }
     });
+    window.addEventListener('blur', function () { clearInput(); });
 
     /* ================= Boot & loop ================= */
     buildLevel(1);
