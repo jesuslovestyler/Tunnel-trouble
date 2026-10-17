@@ -69,6 +69,15 @@
         padding: 4px 12px; cursor: pointer; touch-action: manipulation;
       }
       #muteBtn:active { transform: translateY(1px); }
+      .homebtn {
+        flex: 0 0 auto; align-self: stretch;
+        display: inline-flex; align-items: center;
+        background: var(--btn); color: var(--ink);
+        border: 2px solid var(--btn-edge); border-radius: 12px;
+        font-weight: 800; font-size: 13px;
+        padding: 4px 12px; text-decoration: none; touch-action: manipulation;
+      }
+      .homebtn:active { transform: translateY(1px); }
 
       /* ---------- Stage ---------- */
       .stage {
@@ -180,6 +189,7 @@
         <div class="stat"><span class="lab">Level</span><span class="val" id="hLevel">1</span></div>
         <div class="stat"><span class="lab">Critters</span><span class="val" id="hLeft">0</span></div>
         <div class="stat lives"><span class="lab">Lives</span><span class="val" id="hLives">♥♥♥</span></div>
+        <a class="homebtn" href="https://jesuslovestyler.com/">⌂ Home</a>
         <button id="muteBtn" type="button">Sound: On</button>
       </div>
 
@@ -1140,5 +1150,6 @@
     }
     requestAnimationFrame(loop);
     </script>
+    <script data-goatcounter="https://jesuslovestyler.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
   </body>
 </html>
