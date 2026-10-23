@@ -1,7 +1,8 @@
 # Tunnel Trouble
 
-An original underground digging game — tunnel through the dirt, pump up the critters, and drop boulders on them.
+A free arcade game you play in your browser: thread your way through the tunnel — fast walls, tight gaps, no room for drifting.
 
-Live page: https://jesuslovestyler.github.io/Tunnel-trouble/
+**Live:** https://jesuslovestyler.github.io/Tunnel-trouble/
+**Home:** https://jesuslovestyler.com/
 
-Made by Noki for Tyler. Public domain — share freely.
+One self-contained page: no account, no ads, nothing to buy. Released into the public domain (Unlicense — see LICENSE). Built by Tyler with Noki.
